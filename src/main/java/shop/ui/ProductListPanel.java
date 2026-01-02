@@ -11,6 +11,7 @@ public class ProductListPanel extends JPanel {
     private final CartController cartController;
     private final NavbarPanel navbarPanel;
     private final JPanel listContainer;
+    private final JScrollPane scroll;
 
     public ProductListPanel(ProductController productController, CartController cartController, NavbarPanel navbarPanel) {
         this.productController = productController;
@@ -23,14 +24,22 @@ public class ProductListPanel extends JPanel {
         listContainer.setLayout(new BoxLayout(listContainer, BoxLayout.Y_AXIS));
         listContainer.setBackground(Color.WHITE);
 
-        JScrollPane scroll = new JScrollPane(listContainer);
+        scroll = new JScrollPane(listContainer);
         scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
 
         add(scroll, BorderLayout.CENTER);
 
         loadAllProducts();
+    }
+
+    public void refreshLayout() {
+        listContainer.revalidate();
+        listContainer.repaint();
+        scroll.revalidate();
+        scroll.repaint();
     }
 
     public void loadAllProducts() {

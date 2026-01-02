@@ -15,6 +15,12 @@ public class ProductCardPanel extends JPanel {
     private final CartController cartController;
     private final NavbarPanel navbarPanel;
     private JPanel cardsContainer;
+    private JScrollPane scrollPane;
+    private static final int COLUMNS = 3;
+    private static final int CARD_WIDTH = 350;
+    private static final int CARD_HEIGHT = 560;
+    private static final int GAP = 15;
+    
     public ProductCardPanel(ProductController productController, CartController cartController, NavbarPanel navbarPanel) {
         this.productController = productController;
         this.cartController = cartController;
@@ -22,20 +28,34 @@ public class ProductCardPanel extends JPanel {
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
 
-        // Create scrollable container for product cards using a wrap layout
+        // Create scrollable container for product cards using GridLayout with 3 columns
         cardsContainer = new JPanel();
-        cardsContainer.setLayout(new shop.util.WrapLayout(FlowLayout.LEFT, 10, 10));
+        cardsContainer.setLayout(new GridLayout(0, COLUMNS, GAP, GAP));
         cardsContainer.setBackground(Color.WHITE);
+        cardsContainer.setBorder(BorderFactory.createEmptyBorder(GAP, GAP, GAP, GAP));
 
-        JScrollPane scrollPane = new JScrollPane(cardsContainer);
+        // Wrapper panel to prevent cards from stretching vertically
+        JPanel wrapperPanel = new JPanel(new BorderLayout());
+        wrapperPanel.setBackground(Color.WHITE);
+        wrapperPanel.add(cardsContainer, BorderLayout.NORTH);
+
+        scrollPane = new JScrollPane(wrapperPanel);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
         
         add(scrollPane, BorderLayout.CENTER);
 
         // Load all products on initialization
         loadAllProducts();
+    }
+
+    public void refreshLayout() {
+        cardsContainer.revalidate();
+        cardsContainer.repaint();
+        scrollPane.revalidate();
+        scrollPane.repaint();
     }
 
     // Load all products from database
@@ -44,16 +64,18 @@ public class ProductCardPanel extends JPanel {
         List<Product> products = productController.getAllProducts();
         
         if (products == null || products.isEmpty()) {
-            JLabel emptyLabel = new JLabel("No products available");
+            // Change to single column layout for empty message
+            cardsContainer.setLayout(new GridLayout(1, 1));
+            JLabel emptyLabel = new JLabel("No products available", SwingConstants.CENTER);
             emptyLabel.setFont(new Font("SansSerif", Font.PLAIN, 18));
             emptyLabel.setForeground(Color.GRAY);
             cardsContainer.add(emptyLabel);
         } else {
+            // Reset to 3-column grid layout
+            cardsContainer.setLayout(new GridLayout(0, COLUMNS, GAP, GAP));
             for (Product product : products) {
                 JPanel card = createProductCardFromModel(product);
-                // enforce preferred size so wrap layout uses fixed card size
-                card.setPreferredSize(new Dimension(350, 560));
-                card.setMaximumSize(new Dimension(350, 560));
+                card.setPreferredSize(new Dimension(CARD_WIDTH, CARD_HEIGHT));
                 cardsContainer.add(card);
             }
         }
@@ -86,15 +108,18 @@ public class ProductCardPanel extends JPanel {
 
     private void displayProducts(List<Product> products) {
         if (products == null || products.isEmpty()) {
-            JLabel emptyLabel = new JLabel("No products found");
+            // Change to single column for empty message
+            cardsContainer.setLayout(new GridLayout(1, 1));
+            JLabel emptyLabel = new JLabel("No products found", SwingConstants.CENTER);
             emptyLabel.setFont(new Font("SansSerif", Font.PLAIN, 18));
             emptyLabel.setForeground(Color.GRAY);
             cardsContainer.add(emptyLabel);
         } else {
+            // Reset to 3-column grid layout
+            cardsContainer.setLayout(new GridLayout(0, COLUMNS, GAP, GAP));
             for (Product product : products) {
                 JPanel card = createProductCardFromModel(product);
-                card.setPreferredSize(new Dimension(350, 620));
-                card.setMaximumSize(new Dimension(350, 620));
+                card.setPreferredSize(new Dimension(CARD_WIDTH, CARD_HEIGHT));
                 cardsContainer.add(card);
             }
         }

@@ -46,15 +46,47 @@ Manual SQL example (mysql CLI):
 
 ```powershell
 # create database if needed
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS electronic_shop CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS electronics_shop CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 # apply migration
-mysql -u root -p electronic_shop < src\resources\db\migration\V1__create_schema.sql
+mysql -u root -p electronics_shop < src\resources\db\migration\V1__create_schema.sql
 ```
 
 ## Security and best practices
 
 - Do NOT commit `src/resources/app.properties` with real credentials. Use the example file and add your local file to `.gitignore` 
 - For production or shared environments, prefer environment variables or a secrets manager rather than a plain properties file.
+
+## Prerequisites (Windows)
+
+You must have a **JDK** installed (Java 11+ recommended) and `JAVA_HOME` set, otherwise `.\gradlew` will fail with:
+
+`ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.`
+
+### 1) Install a JDK
+Install one of:
+- Temurin (Adoptium) JDK 11/17, or
+- Oracle JDK 11/17
+
+### 2) Set JAVA_HOME + PATH
+Example (PowerShell, adjust path to your installed JDK):
+
+```powershell
+[Environment]::SetEnvironmentVariable("JAVA_HOME","C:\Program Files\Eclipse Adoptium\jdk-17.0.x.x-hotspot","User")
+[Environment]::SetEnvironmentVariable("Path",$env:Path + ";$([Environment]::GetEnvironmentVariable('JAVA_HOME','User'))\bin","User")
+```
+
+Close/reopen the terminal, then verify:
+
+```powershell
+java -version
+```
+
+Then run:
+
+```powershell
+cd c:\xampp\htdocs\Electronics-shop-swing-project
+.\gradlew runApp
+```
 
 

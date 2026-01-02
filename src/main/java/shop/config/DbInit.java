@@ -1,100 +1,129 @@
 package shop.config;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
+
+import java.net.URI;
 import java.sql.Connection;
-import java.sql.SQLException;
+import java.sql.DriverManager;
 import java.sql.Statement;
+import java.util.regex.Pattern;
 
 public class DbInit {
 
-    // ✅ Use a leading slash so it's loaded from the classpath root
-    private static final String MIGRATION_RESOURCE = "/db/migration/V1__create_schema.sql";
-
     /**
-     * Run the SQL script on the configured datasource if the `db.init` property is set to true.
-     * This is intentionally opt-in to avoid accidental changes on production databases.
+     * Runs Flyway migrations from classpath:db/migration.
+     *
+     * Enable/disable:
+     * - System property: db.migrate=true|false
+     * - Env var: DB_MIGRATE=true|false
+     * - app.properties: db.migrate=true|false
+     *
+     * Default: enabled.
      */
-    public static void runIfRequested() {
-        String init = System.getProperty("db.init");
-        if (init == null) {
-            init = System.getenv("DB_INIT");
-        }
-        if (init == null) {
-            try {
-                init = DbConfig.getProperty("db.init");
-            } catch (Exception ignored) {
-                init = null;
-            }
-        }
-
-        boolean shouldInit = "true".equalsIgnoreCase(init);
-        if (!shouldInit) {
+    public static void migrate() {
+        boolean shouldMigrate = readBoolean("db.migrate", true)
+                || readBoolean("db.init", false);
+        if (!shouldMigrate) {
             return;
         }
 
-        // ✅ Safety guard: only run on local databases
+        String url = DbConfig.getUrl();
+        String user = DbConfig.getUsername();
+        String pass = DbConfig.getPassword();
+
+        if (url == null || url.isBlank()) {
+            System.err.println("DbInit: db.url is missing; skipping migrations.");
+            return;
+        }
+
+        // NEW: make sure schema exists before Flyway connects to it
+        ensureDatabaseExists(url, user, pass);
+
         try {
-            String url = DbConfig.getUrl();
-            if (url == null || !(url.contains("localhost") || url.contains("127.0.0.1"))) {
-                System.err.println("DbInit: db.init=true but DB URL is not localhost — skipping for safety: " + url);
-                return;
-            }
-        } catch (Exception e) {
-            System.err.println("DbInit: unable to read DB URL, skipping init: " + e.getMessage());
-            return;
-        }
-
-        System.out.println("DbInit: running SQL migration script " + MIGRATION_RESOURCE);
-        try (InputStream in = DbInit.class.getResourceAsStream(MIGRATION_RESOURCE)) {
-            if (in == null) {
-                System.err.println("DbInit: migration resource not found on classpath: " + MIGRATION_RESOURCE);
-                return;
-            }
-            String sql = readAll(in);
-            executeSqlScript(sql);
-            System.out.println("DbInit: migration script executed successfully.");
-        } catch (IOException e) {
-            System.err.println("DbInit: I/O error reading migration script: " + e.getMessage());
+            System.out.println("DbInit: running Flyway migrations...");
+            Flyway flyway = Flyway.configure()
+                    .dataSource(url, user, pass)
+                    .locations("classpath:db/migration")
+                    .load();
+            flyway.migrate();
+            System.out.println("DbInit: migrations finished.");
+        } catch (FlywayException e) {
+            throw new RuntimeException("DbInit: Flyway migration failed", e);
         }
     }
 
-    private static String readAll(InputStream in) throws IOException {
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(in))) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                sb.append(line).append('\n');
-            }
+    private static boolean readBoolean(String key, boolean defaultValue) {
+        String v = System.getProperty(key);
+        if (v == null) {
+            v = System.getenv(key.toUpperCase().replace('.', '_'));
         }
-        return sb.toString();
-    }
-
-    private static void executeSqlScript(String script) {
-        // ✅ Split SQL statements on semicolon + newline
-        String[] statements = script.split(";\\s*\n");
-        try (Connection conn = DbConfig.getConnection()) {
-            boolean auto = conn.getAutoCommit();
+        if (v == null) {
             try {
-                conn.setAutoCommit(false);
-                try (Statement st = conn.createStatement()) {
-                    for (String s : statements) {
-                        String trimmed = s.trim();
-                        if (trimmed.isEmpty()) continue;
-                        st.execute(trimmed);
-                    }
-                }
-                conn.commit();
-            } catch (SQLException e) {
-                conn.rollback();
-                throw e;
-            } finally {
-                conn.setAutoCommit(auto);
+                v = DbConfig.getProperty(key);
+            } catch (Exception ignored) {
+                v = null;
             }
-        } catch (SQLException e) {
-            throw new RuntimeException("Error executing DB init script", e);
+        }
+        if (v == null) {
+            return defaultValue;
+        }
+        return "true".equalsIgnoreCase(v.trim());
+    }
+
+    private static final Pattern DB_NAME_SAFE = Pattern.compile("^[A-Za-z0-9_]+$");
+
+    private static void ensureDatabaseExists(String jdbcUrl, String user, String pass) {
+        String dbName = extractDbName(jdbcUrl);
+        if (dbName == null || dbName.isBlank()) return;
+
+        if (!DB_NAME_SAFE.matcher(dbName).matches()) {
+            throw new IllegalArgumentException("DbInit: unsafe database name in db.url: " + dbName);
+        }
+
+        System.out.println("DbInit: ensuring database exists: " + dbName); // NEW
+
+        String serverUrl = toServerJdbcUrl(jdbcUrl);
+
+        try (Connection c = DriverManager.getConnection(serverUrl, user, pass);
+             Statement st = c.createStatement()) {
+            st.execute("CREATE DATABASE IF NOT EXISTS `" + dbName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+        } catch (Exception e) {
+            throw new RuntimeException("DbInit: failed to ensure database exists (" + dbName + ")", e);
+        }
+    }
+
+    private static String extractDbName(String jdbcUrl) {
+        try {
+            String u = jdbcUrl.startsWith("jdbc:") ? jdbcUrl.substring(5) : jdbcUrl; // mysql://...
+            URI uri = new URI(u);
+            String path = uri.getPath(); // "/electronics_shop"
+            if (path == null) return null;
+            String name = path.startsWith("/") ? path.substring(1) : path;
+            int slash = name.indexOf('/');
+            return slash >= 0 ? name.substring(0, slash) : name;
+        } catch (Exception ignored) {
+            // fallback: ...host:port/DB?params
+            int slash = jdbcUrl.indexOf('/', jdbcUrl.indexOf("://") + 3);
+            if (slash < 0) return null;
+            int q = jdbcUrl.indexOf('?', slash + 1);
+            return (q < 0) ? jdbcUrl.substring(slash + 1) : jdbcUrl.substring(slash + 1, q);
+        }
+    }
+
+    private static String toServerJdbcUrl(String jdbcUrl) {
+        try {
+            String u = jdbcUrl.startsWith("jdbc:") ? jdbcUrl.substring(5) : jdbcUrl; // mysql://...
+            URI uri = new URI(u);
+            String base = new URI(uri.getScheme(), uri.getUserInfo(), uri.getHost(), uri.getPort(), "/", null, null).toString();
+            String q = uri.getQuery();
+            return "jdbc:" + base + (q == null || q.isBlank() ? "" : "?" + q);
+        } catch (Exception e) {
+            // fallback: replace "/db" with "/"
+            int slash = jdbcUrl.indexOf('/', jdbcUrl.indexOf("://") + 3);
+            if (slash < 0) return jdbcUrl;
+            int q = jdbcUrl.indexOf('?', slash);
+            return (q < 0) ? (jdbcUrl.substring(0, slash + 1)) : (jdbcUrl.substring(0, slash + 1) + jdbcUrl.substring(q));
         }
     }
 }

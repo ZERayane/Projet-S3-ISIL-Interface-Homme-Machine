@@ -17,6 +17,8 @@ dependencies {
 
     // Flyway for migrations
     implementation 'org.flywaydb:flyway-core:9.22.0'
+    // NEW: required so Flyway can handle jdbc:mysql://... (MySQL/MariaDB)
+    implementation 'org.flywaydb:flyway-mysql:9.22.0'
 
     testImplementation 'junit:junit:4.13.2'
 }

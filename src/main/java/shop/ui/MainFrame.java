@@ -1,60 +1,37 @@
 package shop.ui;
 
 import javax.swing.*;
-import javax.swing.border.AbstractBorder;
 import javax.swing.border.EmptyBorder;
-
-import com.mysql.cj.x.protobuf.MysqlxCrud.Order;
-
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.awt.*;
-import java.awt.event.FocusAdapter;
-import java.awt.event.FocusEvent;
 
 import shop.controllers.ProductController;
 import shop.controllers.CartController;
 import java.util.concurrent.atomic.AtomicReference;
-// product model not referenced directly in this frame
-import shop.repositories.ProductRepository;
-import shop.repositories.CartRepository;
-import shop.ui.SearchPanel;
-import shop.ui.NavbarPanel;
-import shop.ui.CategoryPanel;
 import shop.controllers.OrderController;
-import shop.repositories.OrderRepository;
 
 public class MainFrame extends JFrame {
-    private final ProductController productController;
-    private final CartController cartController;
     private javax.swing.Timer searchTimer;
-    private final OrderController orderController;
-    
+    private boolean isCategoryPanelVisible = true;
+    private boolean isGridViewActive = true;
+
     public MainFrame(ProductController productController, CartController cartController, OrderController orderController ) {
         super("ElectroShop");
-        this.productController = productController;
-        this.cartController = cartController;
-        this.orderController = orderController;
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLayout(new BorderLayout());
-        
+
         JPanel container = new JPanel(new BorderLayout());
-       container.setBorder(new EmptyBorder(0, 0, 0, 0));
-        // navbar
+        container.setBorder(new EmptyBorder(0, 0, 0, 0));
         JPanel topContainer = new JPanel(new BorderLayout());
         NavbarPanel navbarPanel = new NavbarPanel();
         topContainer.add(navbarPanel, BorderLayout.NORTH);
-        SearchPanel searchPanel = new SearchPanel();
-        topContainer.add(searchPanel, BorderLayout.SOUTH);
 
-        // Catalogue
-
-        // Use the real ProductCardPanel which renders cards
+        // --- Product panels (grid and list views) ---
         ProductCardPanel productPanel = new ProductCardPanel(productController, cartController, navbarPanel);
         ProductListPanel listPanel = new ProductListPanel(productController, cartController, navbarPanel);
-        // start in card view (use AtomicReference so lambda can update it)
         AtomicReference<JComponent> currentCenter = new AtomicReference<>(productPanel);
-        container.add(new CategoryPanel(category -> {
+
+        // --- Category panel (togglable) ---
+        CategoryPanel categoryPanel = new CategoryPanel(category -> {
             if ("All".equals(category)) {
                 productPanel.loadAllProducts();
                 listPanel.loadAllProducts();
@@ -62,28 +39,45 @@ public class MainFrame extends JFrame {
                 productPanel.loadProductsByCategory(category);
                 listPanel.loadProductsByCategory(category);
             }
-        }), BorderLayout.WEST);
-        container.add(currentCenter.get(), BorderLayout.CENTER);
+        });
+        container.add(categoryPanel, BorderLayout.WEST);
 
-        // Toggle between grid (cards) and list views
-        searchPanel.getListViewButton().addActionListener(e -> {
-            // use the container variable (outer scope) to swap views
-            if (currentCenter.get() == productPanel) {
-                container.remove(productPanel);
-                container.add(listPanel, BorderLayout.CENTER);
-                currentCenter.set(listPanel);
-            } else {
+        // Search bar with controls
+        SearchBarPanel searchBarPanel = new SearchBarPanel();
+        topContainer.add(searchBarPanel, BorderLayout.SOUTH);
+
+        // Category panel toggle (X/≡)
+        searchBarPanel.getCategoryToggleButton().addActionListener(e -> {
+            isCategoryPanelVisible = !isCategoryPanelVisible;
+            categoryPanel.setVisible(isCategoryPanelVisible);
+            searchBarPanel.updateCategoryToggleButton(isCategoryPanelVisible);
+            container.revalidate();
+            container.repaint();
+            // Refresh product layout to adjust to new available space
+            productPanel.refreshLayout();
+            listPanel.refreshLayout();
+        });
+
+        // View toggle (Grid ⇄ List)
+        searchBarPanel.getListViewButton().addActionListener(e -> {
+            isGridViewActive = !isGridViewActive;
+            if (isGridViewActive) {
                 container.remove(listPanel);
                 container.add(productPanel, BorderLayout.CENTER);
                 currentCenter.set(productPanel);
+            } else {
+                container.remove(productPanel);
+                container.add(listPanel, BorderLayout.CENTER);
+                currentCenter.set(listPanel);
             }
+            searchBarPanel.updateViewToggleButton(isGridViewActive);
             container.revalidate();
             container.repaint();
         });
         
-        // Wire search field to filter products with debounce
+        // Search field with debounce
         final MainFrame mainFrame = this;
-        searchPanel.getSearchField().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        searchBarPanel.getSearchField().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
             public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 scheduleSearch();
@@ -105,7 +99,7 @@ public class MainFrame extends JFrame {
                 mainFrame.searchTimer.start();
             }
             private void performSearch() {
-                String query = searchPanel.getSearchField().getText().trim();
+                String query = searchBarPanel.getSearchField().getText().trim();
                 if (query.isEmpty()) {
                     productPanel.loadAllProducts();
                     listPanel.loadAllProducts();
@@ -116,9 +110,13 @@ public class MainFrame extends JFrame {
             }
         });
         
+        container.add(currentCenter.get(), BorderLayout.CENTER);
         container.add(topContainer, BorderLayout.NORTH);
-        add(container);
-        
+        add(container, BorderLayout.CENTER);
+
+        // Footer panel (fixed at bottom)
+        add(new FooterPanel(), BorderLayout.SOUTH);
+
         // Initialize cart counter
         navbarPanel.updateCartCount(cartController.getItemCount());
         
@@ -134,39 +132,4 @@ public class MainFrame extends JFrame {
             cartWindow.setVisible(true);
         });
     }
-
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Create database connection
-                Connection connection = DriverManager.getConnection(
-                    "jdbc:mysql://localhost:3306/electronic_shop", 
-                    "root", 
-                    ""
-                );
-                
-                // Create repositories and controllers
-                ProductRepository productRepository = new ProductRepository(connection);
-                CartRepository cartRepository = new CartRepository(connection, productRepository);
-                ProductController productController = new ProductController(productRepository);
-                CartController cartController = new CartController(cartRepository, productRepository);
-                OrderRepository orderRepository = new OrderRepository(connection, productRepository);
-                OrderController orderController = new OrderController(orderRepository, productRepository);
-                // Create and show frame
-                MainFrame frame = new MainFrame(productController, cartController,orderController);
-                frame.pack();
-
-                frame.setVisible(true);
-                
-                } catch (Exception e) {
-                e.printStackTrace();
-                JOptionPane.showMessageDialog(null, 
-                    "Error connecting to database: " + e.getMessage(),
-                    "Database Error",
-                    JOptionPane.ERROR_MESSAGE);
-            }
-        });
-    }
-    
-    
 }
